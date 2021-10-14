@@ -211,4 +211,8 @@ defmodule Console.Jobs do
       Hotspots.update_hotspot(hotspot, params)
     end
   end
+
+  def update_tables_latest_events do
+    IO.inspect "UPDATING BASED ON EVENTS"
+  end
 end

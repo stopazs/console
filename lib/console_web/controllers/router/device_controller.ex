@@ -8,8 +8,6 @@ defmodule ConsoleWeb.Router.DeviceController do
   alias Console.Devices.Device
   alias Console.Channels
   alias Console.Organizations
-  alias Console.DeviceStats
-  alias Console.HotspotStats
   alias Console.Events
   alias Console.DcPurchases
   alias Console.DcPurchases.DcPurchase
@@ -53,7 +51,7 @@ defmodule ConsoleWeb.Router.DeviceController do
                 if device.config_profile do device.config_profile else nil end
               end
           end
-        
+
         adr_allowed =
           case config_profile do
             nil -> false
