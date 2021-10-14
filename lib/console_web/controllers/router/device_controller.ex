@@ -177,131 +177,46 @@ defmodule ConsoleWeb.Router.DeviceController do
       nil ->
         conn
         |> send_resp(404, "")
-      %Device{} = device ->
-        organization = Organizations.get_organization!(device.organization_id)
-        prev_dc_balance = organization.dc_balance
+      %Device{} ->
+        organization = Organizations.get_organization!(event_device.organization_id)
 
-        result =
-          Ecto.Multi.new()
-          |> Ecto.Multi.run(:event, fn _repo, _ ->
-            event = case event["data"]["req"]["body"] do
-              nil -> event
-              _ ->
-                cond do
-                  String.length(event["data"]["req"]["body"]) > 2500 ->
-                    Kernel.put_in(event["data"]["req"]["body"], "Request body is too long and cannot be displayed properly.")
-                  String.contains?(event["data"]["req"]["body"], <<0>>) or String.contains?(event["data"]["req"]["body"], <<1>>) or String.contains?(event["data"]["req"]["body"], "\\u0000") ->
-                    Kernel.put_in(event["data"]["req"]["body"], "Request body contains unprintable characters when encoding to Unicode and cannot be displayed properly.")
-                  true ->
-                    event
-                end
+        event = case event["data"]["req"]["body"] do
+          nil -> event
+          _ ->
+            cond do
+              String.length(event["data"]["req"]["body"]) > 2500 ->
+                Kernel.put_in(event["data"]["req"]["body"], "Request body is too long and cannot be displayed properly.")
+              String.contains?(event["data"]["req"]["body"], <<0>>) or String.contains?(event["data"]["req"]["body"], <<1>>) or String.contains?(event["data"]["req"]["body"], "\\u0000") ->
+                Kernel.put_in(event["data"]["req"]["body"], "Request body contains unprintable characters when encoding to Unicode and cannot be displayed properly.")
+              true ->
+                event
             end
+        end
 
-            event = case event["data"]["req"]["body"] do
-              nil -> event
-              _ ->
-                case Poison.decode(event["data"]["req"]["body"]) do
-                  {:ok, decoded_body} -> Kernel.put_in(event["data"]["req"]["body"], decoded_body)
-                  _ -> event
-                end
+        event = case event["data"]["req"]["body"] do
+          nil -> event
+          _ ->
+            case Poison.decode(event["data"]["req"]["body"]) do
+              {:ok, decoded_body} -> Kernel.put_in(event["data"]["req"]["body"], decoded_body)
+              _ -> event
             end
+        end
 
-            event = case event["data"]["payload"] do
-              nil -> event
-              _ ->
-                if String.contains?(event["data"]["payload"], <<0>>) or String.contains?(event["data"]["payload"], <<1>>) do
-                  b64_payload = event["data"]["payload"] |> :base64.encode
-                  Kernel.put_in(event["data"]["payload"], "Payload contains unprintable Unicode characters, (#{b64_payload} in Base64)")
-                else
-                  event
-                end
-            end
-
-            Events.create_event(Map.put(event, "organization_id", organization.id))
-          end)
-          |> Ecto.Multi.run(:device, fn _repo, %{ event: event } ->
-            locked_device = Devices.get_device_and_lock_for_add_device_event(device.id)
-
-            dc_used =
-              case event.sub_category in ["uplink_confirmed", "uplink_unconfirmed"] or event.category == "join_request" do
-                true -> event.data["dc"]["used"]
-                false -> 0
-              end
-            packet_count = if dc_used == 0, do: 0, else: 1
-
-            device_updates = %{
-              "last_connected" => event.reported_at_naive,
-              "total_packets" => locked_device.total_packets + packet_count,
-              "dc_usage" => locked_device.dc_usage + dc_used,
-              "in_xor_filter" => true
-            }
-
-            device_updates = cond do
-              is_integer(event.frame_up) -> device_updates |> Map.put("frame_up", event.frame_up)
-              is_integer(event.frame_down) -> device_updates |> Map.put("frame_down", event.frame_down)
-              true -> device_updates
-            end
-
-            Devices.update_device(locked_device, device_updates, "router")
-          end)
-          |> Ecto.Multi.run(:device_stat, fn _repo, %{ event: event, device: device } ->
-            if event.sub_category in ["uplink_confirmed", "uplink_unconfirmed"] or event.category == "join_request" do
-              DeviceStats.create_stat(%{
-                "router_uuid" => event.router_uuid,
-                "payload_size" => event.data["payload_size"],
-                "dc_used" => event.data["dc"]["used"],
-                "reported_at_epoch" => event.reported_at_epoch,
-                "device_id" => device.id,
-                "organization_id" => device.organization_id
-              })
+        event = case event["data"]["payload"] do
+          nil -> event
+          _ ->
+            if String.contains?(event["data"]["payload"], <<0>>) or String.contains?(event["data"]["payload"], <<1>>) do
+              b64_payload = event["data"]["payload"] |> :base64.encode
+              Kernel.put_in(event["data"]["payload"], "Payload contains unprintable Unicode characters, (#{b64_payload} in Base64)")
             else
-              {:ok, %{}}
+              event
             end
-          end)
-          |> Ecto.Multi.run(:hotspot_stat, fn _repo, %{ event: event, device: device } ->
-            if event.sub_category in ["uplink_confirmed", "uplink_unconfirmed"] or event.category == "join_request" do
-              HotspotStats.create_stat(%{
-                "router_uuid" => event.router_uuid,
-                "hotspot_address" => event.data["hotspot"]["id"],
-                "rssi" => event.data["hotspot"]["rssi"],
-                "snr" => event.data["hotspot"]["snr"],
-                "channel" => event.data["hotspot"]["channel"],
-                "spreading" => event.data["hotspot"]["spreading"],
-                "category" => event.category,
-                "sub_category" => event.sub_category,
-                "reported_at_epoch" => event.reported_at_epoch,
-                "device_id" => device.id,
-                "organization_id" => device.organization_id
-              })
-            else
-              {:ok, %{}}
-            end
-          end)
-          |> Ecto.Multi.run(:organization, fn _repo, %{ device: _device, event: created_event } ->
-            if event["sub_category"] in ["uplink_confirmed", "uplink_unconfirmed"] or event["category"] == "join_request" do
-              cond do
-                organization.dc_balance_nonce == event["data"]["dc"]["nonce"] ->
-                  Organizations.update_organization(organization, %{ "dc_balance" => event["data"]["dc"]["balance"] })
-                organization.dc_balance_nonce - 1 == event["data"]["dc"]["nonce"] ->
-                  {:ok, updated_org} = Organizations.update_organization(organization, %{ "dc_balance" => organization.dc_balance - created_event.data["dc"]["used"] })
-                  ConsoleWeb.DataCreditController.broadcast_router_refill_dc_balance(updated_org)
+        end
 
-                  {:ok, updated_org}
-                true ->
-                  {:error, "DC balance nonce inconsistent between router and console"}
-              end
-            else
-              {:ok, organization}
-            end
-          end)
-          |> Repo.transaction()
+        result = Events.create_event(Map.put(event, "organization_id", organization.id))
 
-        with {:ok, %{ event: event, device: device, organization: organization }} <- result do
-          publish_created_event(event, device)
-
-          if event.sub_category in ["uplink_confirmed", "uplink_unconfirmed"] do
-            check_org_dc_balance(organization, prev_dc_balance)
-          end
+        with {:ok, event} <- result do
+          publish_created_event(event, event_device)
 
           if event_device.last_connected == nil do
             { _, time } = Timex.format(Timex.now, "%H:%M:%S UTC", :strftime)
@@ -341,7 +256,9 @@ defmodule ConsoleWeb.Router.DeviceController do
                     AlertEvents.notify_alert_event(event_integration.id, "integration", "integration_stops_working", details, nil, limit)
                     Channels.update_channel(event_integration, organization, %{ last_errored: true })
                   else
-                    Channels.update_channel(event_integration, organization, %{ last_errored: false })
+                    if event_integration.last_errored do
+                      Channels.update_channel(event_integration, organization, %{ last_errored: false })
+                    end
                   end
                 end
               end
