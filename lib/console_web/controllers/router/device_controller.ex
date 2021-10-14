@@ -8,6 +8,8 @@ defmodule ConsoleWeb.Router.DeviceController do
   alias Console.Devices.Device
   alias Console.Channels
   alias Console.Organizations
+  alias Console.DeviceStats
+  alias Console.HotspotStats
   alias Console.Events
   alias Console.DcPurchases
   alias Console.DcPurchases.DcPurchase
@@ -178,42 +180,80 @@ defmodule ConsoleWeb.Router.DeviceController do
       %Device{} ->
         organization = Organizations.get_organization!(event_device.organization_id)
 
-        event = case event["data"]["req"]["body"] do
-          nil -> event
-          _ ->
-            cond do
-              String.length(event["data"]["req"]["body"]) > 2500 ->
-                Kernel.put_in(event["data"]["req"]["body"], "Request body is too long and cannot be displayed properly.")
-              String.contains?(event["data"]["req"]["body"], <<0>>) or String.contains?(event["data"]["req"]["body"], <<1>>) or String.contains?(event["data"]["req"]["body"], "\\u0000") ->
-                Kernel.put_in(event["data"]["req"]["body"], "Request body contains unprintable characters when encoding to Unicode and cannot be displayed properly.")
-              true ->
-                event
+        result =
+          Ecto.Multi.new()
+          |> Ecto.Multi.run(:event, fn _repo, _ ->
+            event = case event["data"]["req"]["body"] do
+              nil -> event
+              _ ->
+                cond do
+                  String.length(event["data"]["req"]["body"]) > 2500 ->
+                    Kernel.put_in(event["data"]["req"]["body"], "Request body is too long and cannot be displayed properly.")
+                  String.contains?(event["data"]["req"]["body"], <<0>>) or String.contains?(event["data"]["req"]["body"], <<1>>) or String.contains?(event["data"]["req"]["body"], "\\u0000") ->
+                    Kernel.put_in(event["data"]["req"]["body"], "Request body contains unprintable characters when encoding to Unicode and cannot be displayed properly.")
+                  true ->
+                    event
+                end
             end
-        end
 
-        event = case event["data"]["req"]["body"] do
-          nil -> event
-          _ ->
-            case Poison.decode(event["data"]["req"]["body"]) do
-              {:ok, decoded_body} -> Kernel.put_in(event["data"]["req"]["body"], decoded_body)
-              _ -> event
+            event = case event["data"]["req"]["body"] do
+              nil -> event
+              _ ->
+                case Poison.decode(event["data"]["req"]["body"]) do
+                  {:ok, decoded_body} -> Kernel.put_in(event["data"]["req"]["body"], decoded_body)
+                  _ -> event
+                end
             end
-        end
 
-        event = case event["data"]["payload"] do
-          nil -> event
-          _ ->
-            if String.contains?(event["data"]["payload"], <<0>>) or String.contains?(event["data"]["payload"], <<1>>) do
-              b64_payload = event["data"]["payload"] |> :base64.encode
-              Kernel.put_in(event["data"]["payload"], "Payload contains unprintable Unicode characters, (#{b64_payload} in Base64)")
+            event = case event["data"]["payload"] do
+              nil -> event
+              _ ->
+                if String.contains?(event["data"]["payload"], <<0>>) or String.contains?(event["data"]["payload"], <<1>>) do
+                  b64_payload = event["data"]["payload"] |> :base64.encode
+                  Kernel.put_in(event["data"]["payload"], "Payload contains unprintable Unicode characters, (#{b64_payload} in Base64)")
+                else
+                  event
+                end
+            end
+
+            Events.create_event(Map.put(event, "organization_id", organization.id))
+          end)
+          |> Ecto.Multi.run(:device_stat, fn _repo, %{ event: event } ->
+            if event.sub_category in ["uplink_confirmed", "uplink_unconfirmed"] or event.category == "join_request" do
+              DeviceStats.create_stat(%{
+                "router_uuid" => event.router_uuid,
+                "payload_size" => event.data["payload_size"],
+                "dc_used" => event.data["dc"]["used"],
+                "reported_at_epoch" => event.reported_at_epoch,
+                "device_id" => event_device.id,
+                "organization_id" => event_device.organization_id
+              })
             else
-              event
+              {:ok, %{}}
             end
-        end
-
-        result = Events.create_event(Map.put(event, "organization_id", organization.id))
-
-        with {:ok, event} <- result do
+          end)
+          |> Ecto.Multi.run(:hotspot_stat, fn _repo, %{ event: event } ->
+            if event.sub_category in ["uplink_confirmed", "uplink_unconfirmed"] or event.category == "join_request" do
+              HotspotStats.create_stat(%{
+                "router_uuid" => event.router_uuid,
+                "hotspot_address" => event.data["hotspot"]["id"],
+                "rssi" => event.data["hotspot"]["rssi"],
+                "snr" => event.data["hotspot"]["snr"],
+                "channel" => event.data["hotspot"]["channel"],
+                "spreading" => event.data["hotspot"]["spreading"],
+                "category" => event.category,
+                "sub_category" => event.sub_category,
+                "reported_at_epoch" => event.reported_at_epoch,
+                "device_id" => event_device.id,
+                "organization_id" => event_device.organization_id
+              })
+            else
+              {:ok, %{}}
+            end
+          end)
+          |> Repo.transaction()
+          
+        with {:ok, %{ event: event, device_stat: _, hotspot_stat: _ }} <- result do
           publish_created_event(event, event_device)
 
           if event_device.last_connected == nil do
