@@ -12,6 +12,7 @@ defmodule Console.Jobs do
   alias Console.Repo
   alias Console.BlockchainApi
   alias Console.Hotspots
+  alias Console.EventsStatRuns
 
   def send_alerts do
     # to avoid spamming customers with multiple notifications for the same event, get notifications in 5-min batches
@@ -214,5 +215,6 @@ defmodule Console.Jobs do
 
   def update_tables_latest_events do
     IO.inspect "UPDATING BASED ON EVENTS"
+    # EventsStatRuns.create_events_stat_run(%{ last_event_id: "pos", reported_at_epoch: "100000000" })
   end
 end
