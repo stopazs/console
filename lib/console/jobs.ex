@@ -13,6 +13,7 @@ defmodule Console.Jobs do
   alias Console.BlockchainApi
   alias Console.Hotspots
   alias Console.EventsStatRuns
+  alias Console.EventsStatRuns.EventsStatRun
 
   def send_alerts do
     # to avoid spamming customers with multiple notifications for the same event, get notifications in 5-min batches
@@ -213,8 +214,15 @@ defmodule Console.Jobs do
     end
   end
 
-  def update_tables_latest_events do
+  def run_events_stat_job do
     IO.inspect "UPDATING BASED ON EVENTS"
-    # EventsStatRuns.create_events_stat_run(%{ last_event_id: "pos", reported_at_epoch: "100000000" })
+    last_stat_run = %EventsStatRun{} = EventsStatRuns.get_latest()
+    all_events_since = Events.get_events_since_last_stat_run(last_stat_run.reported_at_epoch)
+    latest_event_index = Enum.find_index(all_events_since, fn e -> e.id == last_stat_run.last_event_id end)
+    events_to_parse = Enum.slice(all_events_since, 0, latest_event_index)
+
+    # Go through all events and get the devices they belong to, and update the device attrs as needed
+    # Go through all events and get the orgs they belong to, and update the org attrs as needed
+    # Run check_org_dc_balance for each org
   end
 end

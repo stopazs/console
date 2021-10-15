@@ -79,9 +79,9 @@ config :console, Console.Scheduler,
       schedule: "0 * * * *", # every hour @ 0 mins
       task: {Console.Jobs, :sync_hotspots, []}
     ],
-    update_tables_latest_events: [
-      schedule: "*/2 * * * *", # every 5th min
-      task: {Console.Jobs, :update_tables_latest_events, []}
+    run_events_stat_job: [
+      schedule: {:extended, "*/10"},
+      task: {Console.Jobs, :run_events_stat_job, []}
     ],
   ]
 
