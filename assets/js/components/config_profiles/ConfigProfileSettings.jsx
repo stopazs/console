@@ -119,7 +119,7 @@ export default ({ show, data, save, saveIcon, back, cancel }) => {
           disabled={!userCan({ role: currentRole })}
         />
         <Text strong style={{ fontSize: 16 }}>
-          Enable Join-Accept CF List (applicable to US915 devices only)
+          Enable Join-Accept CF List
         </Text>
       </div>
 
