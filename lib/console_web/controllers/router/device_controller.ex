@@ -36,22 +36,34 @@ defmodule ConsoleWeb.Router.DeviceController do
   end
 
   def show(conn, %{"id" => id}) do
-    case Devices.get_device(id) |> Repo.preload([:multi_buy, labels: [:multi_buy]]) do
+    case Devices.get_device(id) |> Repo.preload([:multi_buy, :config_profile, labels: [:multi_buy]]) do
       %Device{} = device ->
-        adr_allowed =
+        config_profile =
           case length(device.labels) do
-            0 -> device.adr_allowed
+            0 ->
+              if device.config_profile do device.config_profile else nil end
             _ ->
-              label_has_adr_allowed = device.labels |> Enum.map(fn l -> l.adr_allowed end) |> Enum.any?(fn s -> s == true end)
-              if device.adr_allowed == true or label_has_adr_allowed do true else false end
+              device_labels =
+                Labels.get_labels_of_device_in_order_of_attachment(device)
+                |> Repo.preload([label: [:config_profile]])
+              first_device_label_with_config_profile = Enum.find(device_labels,fn dl -> dl.label.config_profile_id != nil end)
+              if first_device_label_with_config_profile do
+                first_device_label_with_config_profile.label.config_profile
+              else
+                if device.config_profile do device.config_profile else nil end
+              end
+          end
+
+        adr_allowed =
+          case config_profile do
+            nil -> false
+            _ -> config_profile.adr_allowed
           end
 
         cf_list_enabled =
-          case length(device.labels) do
-            0 -> device.cf_list_enabled
-            _ ->
-              label_has_cf_enabled = device.labels |> Enum.map(fn l -> l.cf_list_enabled end) |> Enum.any?(fn s -> s == true end)
-              if device.cf_list_enabled == true or label_has_cf_enabled do true else false end
+          case config_profile do
+            nil -> false
+            _ -> config_profile.cf_list_enabled
           end
 
         multi_buy_value =
@@ -175,10 +187,13 @@ defmodule ConsoleWeb.Router.DeviceController do
             event = case event["data"]["req"]["body"] do
               nil -> event
               _ ->
-                if String.contains?(event["data"]["req"]["body"], <<0>>) or String.contains?(event["data"]["req"]["body"], <<1>>) or String.contains?(event["data"]["req"]["body"], "\\u0000") do
-                  Kernel.put_in(event["data"]["req"]["body"], "Request body contains unprintable characters when encoding to Unicode and cannot be displayed properly.")
-                else
-                  event
+                cond do
+                  String.length(event["data"]["req"]["body"]) > 2500 ->
+                    Kernel.put_in(event["data"]["req"]["body"], "Request body is too long and cannot be displayed properly.")
+                  String.contains?(event["data"]["req"]["body"], <<0>>) or String.contains?(event["data"]["req"]["body"], <<1>>) or String.contains?(event["data"]["req"]["body"], "\\u0000") ->
+                    Kernel.put_in(event["data"]["req"]["body"], "Request body contains unprintable characters when encoding to Unicode and cannot be displayed properly.")
+                  true ->
+                    event
                 end
             end
 

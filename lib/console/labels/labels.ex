@@ -30,6 +30,11 @@ defmodule Console.Labels do
      |> Repo.all()
   end
 
+  def get_labels_of_device_in_order_of_attachment(device) do
+     from(dl in DevicesLabels, where: dl.device_id == ^device.id, order_by: [desc: dl.inserted_at])
+     |> Repo.all()
+  end
+
   def get_label(organization, id) do
      Repo.get_by(Label, [id: id, organization_id: organization.id])
   end
@@ -240,5 +245,10 @@ defmodule Console.Labels do
   defp get_organization_label_count(organization) do
     labels = from(d in Label, where: d.organization_id == ^organization.id) |> Repo.all()
     length(labels)
+  end
+
+  def update_config_profile_for_labels(label_ids, config_profile_id, organization_id) do
+    from(l in Label, where: l.id in ^label_ids and l.organization_id == ^organization_id)
+    |> Repo.update_all(set: [config_profile_id: config_profile_id])
   end
 end

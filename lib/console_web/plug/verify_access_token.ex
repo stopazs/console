@@ -47,8 +47,10 @@ defmodule ConsoleWeb.Plug.VerifyAccessToken do
   def init(default), do: default
 
   def call(conn, _default) do
-    case conn |> get_req_header("authorization") do
-      nil ->
+    auth_header = conn |> get_req_header("authorization")
+    
+    cond do
+      auth_header == nil or List.first(auth_header) == nil ->
         conn
           |> send_resp(
             :forbidden,
@@ -58,8 +60,31 @@ defmodule ConsoleWeb.Plug.VerifyAccessToken do
             })
           )
           |> halt()
-      _ ->
-        try do
+      true ->
+        if Application.get_env(:console, :use_magic_auth) do
+          token =
+            conn
+            |> get_req_header("authorization")
+            |> List.first()
+            |> String.replace("Bearer ", "")
+
+          case ConsoleWeb.Guardian.decode_and_verify(token) do
+            {:ok, %{ "typ" => "magic-auth-session", "sub" => user_id, "email" => email }} ->
+              conn
+                |> assign(:user_id, user_id)
+                |> assign(:email, email)
+            _ ->
+              conn
+              |> send_resp(
+                :forbidden,
+                Poison.encode!(%{
+                  type: "forbidden",
+                  errors: ["Could not validate your credentials"]
+                })
+              )
+              |> halt()
+          end
+        else
           token = conn
           |> get_req_header("authorization")
           |> List.first()
@@ -82,10 +107,6 @@ defmodule ConsoleWeb.Plug.VerifyAccessToken do
               )
               |> halt()
           end
-        rescue
-          _ ->
-            auth_header = conn |> get_req_header("authorization") |> List.first()
-            Appsignal.send_error(%RuntimeError{ message: auth_header }, "Failed to verify access token", ["plug/verify_access_token.ex/call"])
         end
     end
   end

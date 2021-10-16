@@ -6,15 +6,14 @@ export const LABEL_FRAGMENT = gql`
     id
     inserted_at
     creator
-    adr_allowed
     multi_buy_id
+    config_profile_id
     devices {
       name
       id
       last_connected
       in_xor_filter
     }
-    cf_list_enabled
     updated_at
   }
 `;
@@ -35,10 +34,14 @@ export const ALL_LABELS_DEVICES = gql`
       id
       name
       device_count
+      devices {
+        config_profile_id
+      }
     }
     allDevices {
       id
       name
+      config_profile_id
     }
   }
 `;
@@ -53,6 +56,7 @@ export const ALL_LABELS = gql`
         id
         in_xor_filter
       }
+      config_profile_id
     }
   }
 `;

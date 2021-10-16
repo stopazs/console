@@ -135,7 +135,7 @@ class NavDrawer extends Component {
           >
             Alerts
           </NavLink>
-          {history.location.pathname === "/alerts" && (
+          {history.location.pathname.indexOf("/alerts") !== -1 && (
             <img
               draggable="false"
               src={Caret}
@@ -146,30 +146,13 @@ class NavDrawer extends Component {
         <div style={{ position: "relative" }}>
           <NavLink
             draggable="false"
-            to={"/adr"}
+            to={"/config_profiles"}
             activeClassName="is-active"
             className="menu-link"
           >
-            ADR
+            Profiles
           </NavLink>
-          {history.location.pathname === "/adr" && (
-            <img
-              draggable="false"
-              src={Caret}
-              style={{ right: -16, position: "absolute", top: 8, height: 12 }}
-            />
-          )}
-        </div>
-        <div style={{ position: "relative" }}>
-          <NavLink
-            draggable="false"
-            to={"/multi_buys"}
-            activeClassName="is-active"
-            className="menu-link"
-          >
-            Multiple Packets
-          </NavLink>
-          {history.location.pathname === "/multi_buys" && (
+          {history.location.pathname.indexOf("/config_profiles") !== -1 && (
             <img
               draggable="false"
               src={Caret}
@@ -180,13 +163,13 @@ class NavDrawer extends Component {
         <div style={{ marginBottom: 30, position: "relative" }}>
           <NavLink
             draggable="false"
-            to={"/cf_list"}
+            to={"/multi_buys"}
             activeClassName="is-active"
             className="menu-link"
           >
-            CF List
+            Multiple Packets
           </NavLink>
-          {history.location.pathname === "/cf_list" && (
+          {history.location.pathname.indexOf("/multi_buys") !== -1 && (
             <img
               draggable="false"
               src={Caret}
